@@ -58,22 +58,27 @@ export function getUserProfile () {
         if (!code) {
           throw new Error('Username is null')
         }
-        const singleQuoteRegex = /^'(?:[^'\\]|\\.)*'$/
-        const doubleQuoteRegex = /^"(?:[^"\\]|\\.)*"$/
-        const backtickRegex = /^`(?:[^`\\$]|\\.|\$(?!{))*`$/
+        const singleQuoteRegex = /^'[^'<>\\]*'$/
+        const doubleQuoteRegex = /^"[^"<>\\]*"$/
+        const backtickRegex = /^`[^`<>\\$]*`$/
         const numericRegex = /^-?\d+(?:\.\d+)?$/
         const booleanRegex = /^(?:true|false|null|undefined)$/
 
-        const isSafe = singleQuoteRegex.test(code) ||
+        const isSafe = (singleQuoteRegex.test(code) ||
           doubleQuoteRegex.test(code) ||
           backtickRegex.test(code) ||
           numericRegex.test(code) ||
-          booleanRegex.test(code)
+          booleanRegex.test(code)) &&
+          !/[<>]/.test(code)
 
         if (!isSafe) {
           throw new Error('Unsafe code execution blocked')
         }
         username = eval(code) // eslint-disable-line no-eval
+        if (typeof username === 'string' && /[<>]/.test(username)) {
+          throw new Error('Unsafe code execution blocked')
+        }
+        username = '\\' + username
       } catch (err) {
         username = '\\' + username
       }
@@ -100,7 +105,10 @@ export function getUserProfile () {
     try {
       const pug = (await import('pug')).default
       const fn = pug.compile(template)
-      const CSP = `img-src 'self' ${user?.profileImage}; script-src 'self' 'unsafe-eval'`
+      const safeProfileImage = user?.profileImage ? user.profileImage.replace(/[;\r\n].*$/s, '').trim() : ''
+      const CSP = safeProfileImage
+        ? `img-src 'self' ${safeProfileImage}; script-src 'self' 'unsafe-eval'`
+        : "img-src 'self'; script-src 'self' 'unsafe-eval'"
 
       challengeUtils.solveIf(challenges.usernameXssChallenge, () => {
         return username && user?.profileImage.match(/;[ ]*script-src(.)*'unsafe-inline'/g) !== null && utils.contains(username, '<script>alert(`xss`)</script>')
